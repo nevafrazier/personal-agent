@@ -1,0 +1,21 @@
+# Environment — NEVER commit this (contains API keys + passwords)
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Frontend
+node_modules/
+dist/
+.DS_Store
+
+# Agent data
+agent_groq_backup.py
+
+# Browser session data
+.nevas_agent_browser/

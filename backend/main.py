@@ -25,7 +25,7 @@ app = FastAPI(title="Neva's Agent")
 # Allow the React frontend (localhost:5173) to talk to this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://personalagent.local:5173"],
     allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["*"],
 )

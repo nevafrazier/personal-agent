@@ -1,4 +1,5 @@
-import { MdContent, EmailPreviewCard } from '../App.jsx'
+import { MdContent } from './MdContent.jsx'
+import EmailPreviewCard from './EmailPreviewCard.jsx'
 import ToolCall from './ToolCall.jsx'
 
 function SparklesIcon() {

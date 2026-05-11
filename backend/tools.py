@@ -211,7 +211,8 @@ def open_app(app_name: str) -> str:
 
 # ── Browser automation ────────────────────────────────────────────────────────
 
-BROWSER_DATA_DIR = str(Path.home() / ".nevas_agent_browser")
+CHROME_PROFILE_DIR = str(Path.home() / "Library" / "Application Support" / "Google" / "Chrome")
+FALLBACK_DATA_DIR  = str(Path.home() / ".nevas_agent_browser")
 
 _pw_instance = None
 _bw_context  = None
@@ -223,15 +224,25 @@ def _get_page():
     if _bw_page is None:
         if _pw_instance is None:
             _pw_instance = sync_playwright().start()
-        _bw_context = _pw_instance.chromium.launch_persistent_context(
-            user_data_dir=BROWSER_DATA_DIR,
-            headless=False,
-            viewport={"width": 1280, "height": 800},
-            args=["--start-maximized", "--window-position=0,0"],
-        )
+        # Try Chrome profile first so all logins (Amazon, Gmail, etc.) are already active
+        try:
+            _bw_context = _pw_instance.chromium.launch_persistent_context(
+                user_data_dir=CHROME_PROFILE_DIR,
+                channel="chrome",
+                headless=False,
+                viewport={"width": 1280, "height": 800},
+                args=["--start-maximized"],
+            )
+        except Exception:
+            # Chrome is open — fall back to the agent's own profile
+            _bw_context = _pw_instance.chromium.launch_persistent_context(
+                user_data_dir=FALLBACK_DATA_DIR,
+                headless=False,
+                viewport={"width": 1280, "height": 800},
+                args=["--start-maximized"],
+            )
         pages = _bw_context.pages
         _bw_page = pages[0] if pages else _bw_context.new_page()
-    # Always bring window to front
     try:
         _bw_page.bring_to_front()
     except Exception:
@@ -329,30 +340,20 @@ def add_to_amazon_cart(item: str) -> str:
     """Search Amazon for an item and add the best result to the cart."""
     try:
         page = _get_page()
-
-        # Force browser window to front on macOS
-        subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to set frontmost of every process whose name contains "Chromium" to true'],
-            capture_output=True
-        )
         page.bring_to_front()
 
-        # Navigate directly to Amazon search URL
-        review_keywords = ["best review", "best-review", "top rated", "top-rated", "highest rated"]
-        sort_by_reviews = any(k in item.lower() for k in review_keywords)
+        # Always sort by reviews
         query = item.replace(" ", "+")
-        sort = "&s=review-rank" if sort_by_reviews else ""
-        url = f"https://www.amazon.com/s?k={query}{sort}"
+        url = f"https://www.amazon.com/s?k={query}&s=review-rank"
         page.goto(url, timeout=30000, wait_until="domcontentloaded")
         page.wait_for_timeout(3000)
         page.bring_to_front()
 
-        # Click first product — try multiple selectors
+        # Click first product with a valid ASIN
         clicked = False
         for selector in [
-            "div.s-result-item[data-asin] h2 a",
             "div[data-component-type='s-search-result'] h2 a",
+            "div.s-result-item[data-asin]:not([data-asin='']) h2 a",
             "h2 a.a-link-normal.a-text-normal",
             "h2 a.a-link-normal",
             ".s-search-results h2 a",
@@ -367,22 +368,42 @@ def add_to_amazon_cart(item: str) -> str:
                 continue
 
         if not clicked:
-            return f"Could not find products for '{item}' — Amazon may need login or is showing a CAPTCHA. Check the browser window."
+            return f"Could not find products for '{item}' — the browser may need you to log into Amazon. Check the browser window and sign in, then try again."
 
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2500)
+        page.wait_for_timeout(3000)
         page.bring_to_front()
         product_title = page.title()
 
-        # Click Add to Cart
+        # If there are color/size variants, click the first available one
         try:
-            add_btn = page.locator("#add-to-cart-button")
-            add_btn.wait_for(state="visible", timeout=8000)
-            add_btn.click()
-            page.wait_for_timeout(1500)
-            return f"Added to cart: {product_title}"
+            variant = page.locator("li.swatchSelect, .swatches-select li, #variation_color_name li, #variation_size_name li").first
+            if variant.is_visible(timeout=2000):
+                variant.click()
+                page.wait_for_timeout(1500)
         except Exception:
-            return f"Found '{product_title}' but could not click Add to Cart — may need a size/color selected first."
+            pass
+
+        # Try every known Add to Cart selector
+        add_selectors = [
+            "#add-to-cart-button",
+            "input[name='submit.add-to-cart']",
+            "input[id='add-to-cart-button']",
+            "span#submit\\.add-to-cart input",
+            "[data-action='add-to-cart'] input",
+            "input[type='submit'][value*='Add to Cart']",
+        ]
+        for sel in add_selectors:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible(timeout=3000):
+                    btn.click()
+                    page.wait_for_timeout(2000)
+                    return f"Added to cart: {product_title}"
+            except Exception:
+                continue
+
+        return f"Found '{product_title}' but could not add to cart — you may need to log into Amazon in the browser window first."
 
     except Exception as e:
         return f"Error adding '{item}' to Amazon cart: {e}"

@@ -204,7 +204,7 @@ export default function App() {
           </div>
           <div className="header-right">
             <Clock />
-            <span className="model-badge"><span className="model-dot" />llama-3.3-70b · groq</span>
+            <span className="model-badge"><span className="model-dot" />claude-sonnet-4-6 · anthropic</span>
           </div>
         </div>
         <div className="header-bottom">
